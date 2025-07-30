@@ -9,11 +9,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_TESTS "build all test suits." OFF)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/flags.cmake)
+set(FLUX_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/output/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/output/lib)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/output/lib)
+include(${FLUX_ROOT}/cmake/flags.cmake)
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${FLUX_ROOT}/output/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${FLUX_ROOT}/output/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${FLUX_ROOT}/output/lib)
 
 add_subdirectory(vendor)
 add_subdirectory(source)
