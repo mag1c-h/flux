@@ -30,10 +30,10 @@
 #include <cstddef>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
+#include <list>
 #include <mutex>
 #include <thread>
 #include <unistd.h>
-#include <vector>
 
 namespace flux {
 
@@ -46,6 +46,9 @@ public:
         const size_t line = 0;
     };
 
+private:
+    using Buffer = std::list<std::string>;
+
 public:
     ~Flux();
     static Flux& Instance()
@@ -56,10 +59,9 @@ public:
     template <typename... Args>
     void log(Level lv, SourceLocation loc, fmt::format_string<Args...> fmt, Args&&... args)
     {
-        auto payload =
-            fmt::format("[FLUX] [{:%Y-%m-%d %H:%M:%S}] [{}] [{}] {} [{},{}:{}]\n", std::chrono::system_clock::now(),
-                        this->FormatAs(lv), this->ThreadId(), fmt::format(fmt, std::forward<Args>(args)...), loc.func,
-                        basename(loc.file), loc.line);
+        auto payload = fmt::format("[{}] [FLUX] [{}] {} [{}] [{}]\n", this->FormatAs(std::chrono::system_clock::now()),
+                                   this->FormatAs(lv), fmt::format(fmt, std::forward<Args>(args)...),
+                                   this->FormatAs(getpid(), std::this_thread::get_id()), this->FormatAs(loc));
         this->Push(std::move(payload));
     }
 
@@ -67,16 +69,36 @@ private:
     Flux() : _worker(&Flux::WorkerLoop, this) {}
     Flux(const Flux&) = delete;
     Flux& operator=(const Flux&) = delete;
-    std::string ThreadId()
+    std::string FormatAs(std::chrono::system_clock::time_point tp)
     {
-        return fmt::format("{:08},{:020}", getpid(), std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        auto time = std::chrono::system_clock::to_time_t(tp);
+        std::tm localTm;
+        localtime_r(&time, &localTm);
+        auto us = std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count() % 1000000;
+        return fmt::format("{:%F %T}.{:06d}", localTm, us);
     }
-    std::string_view FormatAs(Level lv);
+    std::string FormatAs(pid_t pid, std::thread::id tid)
+    {
+        return fmt::format("{},{:020d}", pid, std::hash<std::thread::id>{}(tid));
+    }
+    std::string FormatAs(SourceLocation loc)
+    {
+        return fmt::format("{},{}:{}", loc.func, basename(loc.file), loc.line);
+    }
+    std::string_view FormatAs(Level lv)
+    {
+        switch (lv) {
+        case Level::DEBUG: return "DEBUG";
+        case Level::INFO: return "INFO";
+        case Level::WARN: return "WARN";
+        case Level::ERROR: return "ERROR";
+        }
+        return "UNKNOWN";
+    }
     void WorkerLoop();
     void Push(std::string&& msg);
 
 private:
-    using Buffer = std::vector<std::string>;
     std::unique_ptr<Buffer> _frontBuf = std::make_unique<Buffer>();
     std::unique_ptr<Buffer> _backBuf = std::make_unique<Buffer>();
     std::atomic<bool> _stop{false};

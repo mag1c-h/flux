@@ -39,17 +39,6 @@ Flux::~Flux()
     if (this->_worker.joinable()) { this->_worker.join(); }
 }
 
-std::string_view Flux::FormatAs(Level lv)
-{
-    switch (lv) {
-    case Level::DEBUG: return "DEBUG";
-    case Level::INFO: return "INFO";
-    case Level::WARN: return "WARN";
-    case Level::ERROR: return "ERROR";
-    }
-    return "UNKNOWN";
-}
-
 void Flux::WorkerLoop()
 {
     Buffer localBuf;
