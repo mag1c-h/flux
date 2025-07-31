@@ -26,14 +26,14 @@
 namespace flux {
 
 static constexpr size_t FlushBatchSize = 1024;
-static constexpr auto FlushLatency = std::chrono::microseconds(200);
+static constexpr auto FlushLatency = std::chrono::milliseconds(10);
 
 Flux::~Flux()
 {
     this->_stop.store(true, std::memory_order_relaxed);
     {
         std::lock_guard lg(this->_mtx);
-        this->_frontBuf.swap(this->_backBuf);
+        this->_backBuf.splice(this->_backBuf.end(), this->_frontBuf);
         this->_cv.notify_one();
     }
     if (this->_worker.joinable()) { this->_worker.join(); }
@@ -45,19 +45,20 @@ void Flux::WorkerLoop()
     while (true) {
         {
             std::unique_lock ul(this->_mtx);
-            this->_cv.wait(ul, [this] {
-                return this->_stop.load(std::memory_order_relaxed) || !this->_backBuf->empty() ||
-                       std::chrono::steady_clock::now() - this->_lastFlush >= FlushLatency;
+            auto triggered = this->_cv.wait_for(ul, FlushLatency, [this] {
+                return this->_stop.load(std::memory_order_relaxed) || !this->_backBuf.empty();
             });
             if (this->_stop.load(std::memory_order_relaxed)) { break; }
-            localBuf.swap(*this->_backBuf);
+            localBuf.splice(localBuf.end(), this->_backBuf);
+            if (!triggered) { localBuf.splice(localBuf.end(), this->_frontBuf); }
         }
+        if (localBuf.empty()) { continue; }
         for (const auto& s : localBuf) { std::fwrite(s.data(), 1, s.size(), stdout); }
         std::fflush(stdout);
         localBuf.clear();
     }
-    while (!this->_backBuf->empty()) {
-        localBuf.swap(*this->_backBuf);
+    while (!this->_backBuf.empty()) {
+        localBuf.splice(localBuf.end(), this->_backBuf);
         for (const auto& s : localBuf) { std::fwrite(s.data(), 1, s.size(), stdout); }
         std::fflush(stdout);
         localBuf.clear();
@@ -68,14 +69,13 @@ void Flux::Push(std::string&& msg)
 {
     auto now = std::chrono::steady_clock::now();
     std::lock_guard lg(this->_mtx);
-    this->_frontBuf->push_back(std::move(msg));
-    bool byCount = this->_frontBuf->size() >= FlushBatchSize;
+    this->_frontBuf.push_back(std::move(msg));
+    bool byCount = this->_frontBuf.size() >= FlushBatchSize;
     bool byTime = now - this->_lastFlush >= FlushLatency;
     if (byCount || byTime) {
-        this->_frontBuf.swap(this->_backBuf);
+        this->_backBuf.splice(this->_backBuf.end(), this->_frontBuf);
         this->_lastFlush = now;
         this->_cv.notify_one();
-        this->_frontBuf->clear();
     }
 }
 

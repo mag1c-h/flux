@@ -81,10 +81,7 @@ private:
     {
         return fmt::format("{},{:020d}", pid, std::hash<std::thread::id>{}(tid));
     }
-    std::string FormatAs(SourceLocation loc)
-    {
-        return fmt::format("{},{}:{}", loc.func, basename(loc.file), loc.line);
-    }
+    std::string FormatAs(SourceLocation loc) { return fmt::format("{},{}:{}", loc.func, basename(loc.file), loc.line); }
     std::string_view FormatAs(Level lv)
     {
         switch (lv) {
@@ -99,10 +96,10 @@ private:
     void Push(std::string&& msg);
 
 private:
-    std::unique_ptr<Buffer> _frontBuf = std::make_unique<Buffer>();
-    std::unique_ptr<Buffer> _backBuf = std::make_unique<Buffer>();
     std::atomic<bool> _stop{false};
     std::chrono::steady_clock::time_point _lastFlush{std::chrono::steady_clock::now()};
+    Buffer _frontBuf;
+    Buffer _backBuf;
     std::mutex _mtx;
     std::condition_variable _cv;
     std::thread _worker;
