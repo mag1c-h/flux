@@ -68,38 +68,27 @@ void Flux::WorkerLoop()
     }
 }
 
-size_t ProcessId() { return static_cast<size_t>(::getpid()); }
-
-size_t ThreadId()
-{
-    static thread_local const size_t tid = ::syscall(SYS_gettid);
-    return tid;
-}
-
-std::string FormatAs(std::chrono::system_clock::time_point&& tp)
-{
-    using namespace std::chrono;
-    static thread_local seconds last{0};
-    static thread_local char cached[32];
-    auto current = time_point_cast<seconds>(tp);
-    if (last != current.time_since_epoch()) {
-        auto systemTime = system_clock::to_time_t(tp);
-        std::tm systemTm;
-        localtime_r(&systemTime, &systemTm);
-        fmt::format_to_n(cached, sizeof(cached), "{:%F %T}", systemTm);
-        last = current.time_since_epoch();
-    }
-    auto us = duration_cast<microseconds>(tp - current).count();
-    return fmt::format("{}.{:06d}", cached, us);
-}
-
 void Flux::Push(Level&& lv, SourceLocation&& loc, std::string&& msg)
 {
+    using namespace std::chrono;
     static const char* lvStrs[] = {"DEBUG", "INFO", "WARN", "ERROR"};
-    auto payload =
-        fmt::format("[{}] [FLUX] [{}] {} [{},{}] [{},{}:{}]\n", FormatAs(std::chrono::system_clock::now()),
-                    lvStrs[fmt::underlying(lv)], msg, ProcessId(), ThreadId(), loc.func, basename(loc.file), loc.line);
-    auto steadyNow = std::chrono::steady_clock::now();
+    static const size_t pid = static_cast<size_t>(getpid());
+    static thread_local const size_t tid = syscall(SYS_gettid);
+    static thread_local seconds lastSec{0};
+    static thread_local char datetime[32];
+    auto systemNow = system_clock::now();
+    auto currentSec = time_point_cast<seconds>(systemNow);
+    if (lastSec != currentSec.time_since_epoch()) {
+        auto systemTime = system_clock::to_time_t(systemNow);
+        std::tm systemTm;
+        localtime_r(&systemTime, &systemTm);
+        fmt::format_to_n(datetime, sizeof(datetime), "{:%F %T}", systemTm);
+        lastSec = currentSec.time_since_epoch();
+    }
+    auto us = duration_cast<microseconds>(systemNow - currentSec).count();
+    auto payload = fmt::format("[{}.{:06d}] [FLUX] [{}] {} [{},{}] [{},{}:{}]\n", datetime, us,
+                               lvStrs[fmt::underlying(lv)], msg, pid, tid, loc.func, basename(loc.file), loc.line);
+    auto steadyNow = steady_clock::now();
     std::lock_guard lg(this->_mtx);
     this->_frontBuf.push_back(std::move(payload));
     bool byCount = this->_frontBuf.size() >= FlushBatchSize;
