@@ -29,7 +29,10 @@ int main(int argc, char const* argv[])
     std::vector<std::thread> pool;
     for (int i = 0; i < 8; ++i) {
         pool.emplace_back([i] {
-            for (int j = 0; j < 1000; ++j) { FLUX_INFO("Thread({}): {}L.", i, j); }
+            for (int j = 0; j < 1000; ++j) {
+                FLUX_INFO("Thread({}): {}L.", i, j);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
         });
     }
     for (auto& t : pool) t.join();
