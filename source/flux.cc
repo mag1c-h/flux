@@ -22,6 +22,9 @@
  * SOFTWARE.
  * */
 #include "flux/flux.h"
+#include <fmt/chrono.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 namespace flux {
 
@@ -65,16 +68,45 @@ void Flux::WorkerLoop()
     }
 }
 
-void Flux::Push(std::string&& msg)
+size_t ProcessId() { return static_cast<size_t>(::getpid()); }
+
+size_t ThreadId()
 {
-    auto now = std::chrono::steady_clock::now();
+    static thread_local const size_t tid = ::syscall(SYS_gettid);
+    return tid;
+}
+
+std::string FormatAs(std::chrono::system_clock::time_point&& tp)
+{
+    using namespace std::chrono;
+    static thread_local seconds last{0};
+    static thread_local char cached[32];
+    auto current = time_point_cast<seconds>(tp);
+    if (last != current.time_since_epoch()) {
+        auto systemTime = system_clock::to_time_t(tp);
+        std::tm systemTm;
+        localtime_r(&systemTime, &systemTm);
+        fmt::format_to_n(cached, sizeof(cached), "{:%F %T}", systemTm);
+        last = current.time_since_epoch();
+    }
+    auto us = duration_cast<microseconds>(tp - current).count();
+    return fmt::format("{}.{:06d}", cached, us);
+}
+
+void Flux::Push(Level&& lv, SourceLocation&& loc, std::string&& msg)
+{
+    static const char* lvStrs[] = {"DEBUG", "INFO", "WARN", "ERROR"};
+    auto payload =
+        fmt::format("[{}] [FLUX] [{}] {} [{},{}] [{},{}:{}]\n", FormatAs(std::chrono::system_clock::now()),
+                    lvStrs[fmt::underlying(lv)], msg, ProcessId(), ThreadId(), loc.func, basename(loc.file), loc.line);
+    auto steadyNow = std::chrono::steady_clock::now();
     std::lock_guard lg(this->_mtx);
-    this->_frontBuf.push_back(std::move(msg));
+    this->_frontBuf.push_back(std::move(payload));
     bool byCount = this->_frontBuf.size() >= FlushBatchSize;
-    bool byTime = now - this->_lastFlush >= FlushLatency;
+    bool byTime = steadyNow - this->_lastFlush >= FlushLatency;
     if (byCount || byTime) {
         this->_backBuf.splice(this->_backBuf.end(), this->_frontBuf);
-        this->_lastFlush = now;
+        this->_lastFlush = steadyNow;
         this->_cv.notify_one();
     }
 }
