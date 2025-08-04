@@ -28,6 +28,7 @@ int main(int argc, char const* argv[])
 {
     std::vector<std::thread> pool;
     for (int i = 0; i < 8; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         pool.emplace_back([i] {
             for (int j = 0; j < 1000; ++j) {
                 FLUX_INFO("Thread({}): {}L.", i, j);
